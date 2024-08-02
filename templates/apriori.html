@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Analisis Apriori</title>
+</head>
+<body>
+    <h2>Analisis Apriori</h2>
+
+    <form method="POST" action="/apriori">
+        <label for="start_date">Tanggal Awal:</label>
+        <input type="date" id="start_date" name="start_date" required><br><br>
+        
+        <label for="end_date">Tanggal Akhir:</label>
+        <input type="date" id="end_date" name="end_date" required><br><br>
+
+        <input type="submit" value="Lakukan Analisis">
+    </form>
+
+    <div id="results">
+        {% if results %}
+            <h3>Hasil Analisis:</h3>
+            <ul>
+                {% for result in results %}
+                    <li>{{ result }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </div>
+</body>
+</html>
