@@ -37,13 +37,34 @@ def create_tables():
     # Membuat tabel detailTransaksi (query sama seperti sebelumnya)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS detailTransaksi (
-        detail_transaksi_id VARCHAR(255) PRIMARY KEY,
+        detail_transaksi_id INT AUTO_INCREMENT PRIMARY KEY,
         transaksi_id VARCHAR(255),
         nama_barang VARCHAR(255),
         FOREIGN KEY (transaksi_id) REFERENCES transaksi(transaksi_id)
     )
     """)
-
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS asosiasi (
+        asosiasi_id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(50) NOT NULL,
+        min_support INT,
+        min_confidence INT,
+        start_date DATETIME,  -- Menggunakan DATETIME untuk menyimpan tanggal dan waktu
+        end_date DATETIME    -- Menggunakan DATETIME untuk menyimpan tanggal dan waktu
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS detail_asosiasi (
+        detail_asosiasi_id INT AUTO_INCREMENT PRIMARY KEY,
+        asosiasi_id INT,
+        antecedent INT,
+        consequent INT,
+        support INT,
+        confidence INT,
+        lift INT,
+        FOREIGN KEY (asosiasi_id) REFERENCES asosiasi(asosiasi_id)
+    )
+    """)
     mydb.commit()
     mydb.close()
 
@@ -107,19 +128,26 @@ def apply_apriori(start_date, end_date):
 
         # Ambil data transaksi berdasarkan rentang tanggal
         query = """
-        SELECT dt.nama_barang 
+        SELECT t.transaksi_id, dt.nama_barang 
         FROM detailTransaksi dt
         JOIN transaksi t ON dt.transaksi_id = t.transaksi_id
         WHERE t.tanggal BETWEEN %s AND %s
         """
         cursor.execute(query, (start_date, end_date))
+        result = cursor.fetchall()  # Ambil hasil query
 
-        transactions = []
-        for row in cursor.fetchall():
-            transactions.append([row[0]])  # Membuat list of lists untuk apyori
+        # Buat dictionary untuk mengelompokkan barang per transaksi
+        transactions = {}
+        for transaksi_id, nama_barang in result:
+            if transaksi_id not in transactions:
+                transactions[transaksi_id] = []
+            transactions[transaksi_id].append(nama_barang)
+        
+        # Konversi ke format list of lists yang diperlukan untuk apriori
+        transaction_list = list(transactions.values())
 
         # Terapkan algoritma Apriori
-        results = list(apriori(transactions, min_support=0.003, min_confidence=0.2, min_lift=3, min_length=2))
+        results = list(apriori(transaction_list, min_support=0.00001, min_confidence=0.01, min_lift=1, min_length=2))
 
         # Format hasil Apriori untuk ditampilkan
         formatted_results = []
@@ -130,13 +158,47 @@ def apply_apriori(start_date, end_date):
             lift = str(round(item.ordered_statistics[0].lift, 3))
             formatted_results.append(f"{pair} (Support: {support}, Confidence: {confidence}, Lift: {lift})")
 
+        # Simpan hasil analisis ke tabel asosiasi (konversi results menjadi string)
+        if results:
+            # Konversi results menjadi string
+            results_str = str(results)
+            sql = "INSERT INTO asosiasi (min_support, min_confidence, start_date, end_date) VALUES (%s, %s, %s, %s)"
+            val = (0.00001, 0.01, start_date, end_date) 
+            cursor.execute(sql, val)
+            last_row_id = cursor.lastrowid
+        else:
+            last_row_id = None  # Atur last_row_id menjadi None jika tidak ada hasil
+
+        # Ambil ID dari asosiasi yang baru dimasukkan
+        for item in results:
+            for rule in item.ordered_statistics:
+                antecedent = ", ".join(rule.items_base)
+                consequent = ", ".join(rule.items_add)
+                # Simpan detail aturan asosiasi ke tabel detail_asosiasi
+                sql = """
+                INSERT INTO detail_asosiasi 
+                (asosiasi_id, antecedent, consequent, support, confidence, lift) 
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """
+                val = (
+                    last_row_id,
+                    antecedent,
+                    consequent,
+                    int(item.support * 100),  # Convert support to integer (e.g., 0.2 -> 20)
+                    int(rule.confidence * 100),  # Convert confidence to integer
+                    int(rule.lift * 100)  # Convert lift to integer
+                )
+                cursor.execute(sql, val)
+
+        mydb.commit()
         mydb.close()
 
         return formatted_results
+
     except Exception as e:
         return f"Terjadi kesalahan saat melakukan analisis Apriori: {e}"
 
-# Route untuk melakukan analisis Apriori
+# Route untuk melakukan analisis Apriori dan menyimpan hasilnya ke database
 @app.route('/apriori', methods=['GET', 'POST'])
 def apriori_route():
     if request.method == 'POST':
@@ -146,7 +208,6 @@ def apriori_route():
         return render_template('apriori.html', results=results)
     else:
         return render_template('apriori.html')
-
 
 @app.route('/create_tables')
 def create_tables_route():
