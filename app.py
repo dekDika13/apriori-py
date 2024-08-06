@@ -4,6 +4,8 @@ import mysql.connector
 from io import BytesIO
 import os
 from apyori import apriori
+from mlxtend.frequent_patterns import apriori as mlxtend_apriori, association_rules
+
 
 app = Flask(__name__)
 
@@ -85,12 +87,12 @@ def import_data(file_stream):
         df = pd.read_excel(file_stream) # Ganti dengan path file Excel Anda
 
         # Konversi kolom tanggal ke format DATE
-        df['tanggal'] = pd.to_datetime(df['tanggal']).dt.date
+        df['Tanggal'] = pd.to_datetime(df['Tanggal']).dt.date
 
         # Memasukkan data ke tabel transaksi (data unik berdasarkan transaksi_id)
-        transaksi_df = df[['transaksi_id', 'tanggal']].drop_duplicates()
+        transaksi_df = df[['No Transaksi', 'Tanggal']].drop_duplicates()
         for index, row in transaksi_df.iterrows():
-            transaksi_id = row['transaksi_id']
+            transaksi_id = row['No Transaksi']
 
             # Pengecekan apakah transaksi_id sudah ada
             cursor.execute("SELECT * FROM transaksi WHERE transaksi_id = %s", (transaksi_id,))
@@ -98,13 +100,13 @@ def import_data(file_stream):
 
             if not existing_transaksi:  # Jika transaksi_id belum ada, baru insert
                 sql = "INSERT INTO transaksi (transaksi_id, tanggal) VALUES (%s, %s)"
-                val = (row['transaksi_id'], row['tanggal'])
+                val = (row['No Transaksi'], row['Tanggal'])
                 cursor.execute(sql, val)
 
         # Memasukkan data ke tabel detailTransaksi (tanpa pengecekan detail_transaksi_id)
         for index, row in df.iterrows():
             sql = "INSERT INTO detailTransaksi (transaksi_id, nama_barang) VALUES (%s, %s)"
-            val = (row['transaksi_id'], row['nama_barang'])
+            val = (row['No Transaksi'], row['Nama Barang'])
             cursor.execute(sql, val)
 
         mydb.commit()
@@ -117,18 +119,18 @@ def import_data(file_stream):
 
 def apply_apriori(start_date, end_date):
     try:
+        # Koneksi ke database
         mydb = mysql.connector.connect(
             host=app.config['MYSQL_HOST'],
             user=app.config['MYSQL_USER'],
             password=app.config['MYSQL_PASSWORD'],
             database=app.config['MYSQL_DB']
         )
-
+        
         cursor = mydb.cursor()
-
         # Ambil data transaksi berdasarkan rentang tanggal
         query = """
-        SELECT t.transaksi_id, dt.nama_barang 
+        SELECT t.transaksi_id, t.tanggal, dt.nama_barang 
         FROM detailTransaksi dt
         JOIN transaksi t ON dt.transaksi_id = t.transaksi_id
         WHERE t.tanggal BETWEEN %s AND %s
@@ -136,58 +138,61 @@ def apply_apriori(start_date, end_date):
         cursor.execute(query, (start_date, end_date))
         result = cursor.fetchall()  # Ambil hasil query
 
-        # Buat dictionary untuk mengelompokkan barang per transaksi
-        transactions = {}
-        for transaksi_id, nama_barang in result:
-            if transaksi_id not in transactions:
-                transactions[transaksi_id] = []
-            transactions[transaksi_id].append(nama_barang)
-        
-        # Konversi ke format list of lists yang diperlukan untuk apriori
-        transaction_list = list(transactions.values())
+        # Konversi hasil query ke DataFrame
+        df = pd.DataFrame(result, columns=['No Transaksi', 'Tanggal', 'Nama Barang'])
 
-        # Terapkan algoritma Apriori
-        results = list(apriori(transaction_list, min_support=0.00001, min_confidence=0.01, min_lift=1, min_length=2))
+        # Filter transaksi yang memiliki lebih dari 1 item
+        df_trans_count = df.groupby("No Transaksi").size()
+        df = df[df["No Transaksi"].isin(df_trans_count[df_trans_count > 1].index)]
+
+        # Mengubah DataFrame mybasket menjadi boolean
+        mybasket = (df.groupby(["No Transaksi", "Nama Barang"])
+                    .size().unstack().reset_index().fillna(0)
+                    .set_index("No Transaksi"))
+
+        # Konversi ke boolean: nilai > 0 menjadi True, nilai lainnya menjadi False
+        mybasket_sets = mybasket > 0
+
+        # Mencari frequent itemsets
+        input_support = 0.005
+        frequent_itemsets = mlxtend_apriori(mybasket_sets, min_support=input_support, use_colnames=True).sort_values(by='support', ascending=False)
+
+        # Membuat aturan asosiasi berdasarkan frequent itemsets
+        input_confidence = 0.1
+        rules = association_rules(frequent_itemsets, metric="confidence", min_threshold=input_confidence)
+        rules = rules[["antecedents", "consequents", "antecedent support", "consequent support", "support", "confidence", "lift"]]
+        rules.sort_values("confidence", ascending=False, inplace=True)
 
         # Format hasil Apriori untuk ditampilkan
         formatted_results = []
-        for item in results:
-            pair = ", ".join(item.items)
-            support = str(round(item.support, 3))
-            confidence = str(round(item.ordered_statistics[0].confidence, 3))
-            lift = str(round(item.ordered_statistics[0].lift, 3))
-            formatted_results.append(f"{pair} (Support: {support}, Confidence: {confidence}, Lift: {lift})")
+        for _, row in rules.iterrows():
+            antecedents = ', '.join(list(row['antecedents']))
+            consequents = ', '.join(list(row['consequents']))
+            support = round(row['support'], 3)
+            confidence = round(row['confidence'], 3)
+            lift = round(row['lift'], 3)
+            formatted_results.append(f"{antecedents} -> {consequents} (Support: {support}, Confidence: {confidence}, Lift: {lift})")
 
-        # Simpan hasil analisis ke tabel asosiasi (konversi results menjadi string)
-        if results:
-            # Konversi results menjadi string
-            results_str = str(results)
+        # Simpan hasil analisis ke tabel asosiasi
+        if not rules.empty:
             sql = "INSERT INTO asosiasi (min_support, min_confidence, start_date, end_date) VALUES (%s, %s, %s, %s)"
-            val = (0.00001, 0.01, start_date, end_date) 
+            val = (input_support, input_confidence, start_date, end_date)
             cursor.execute(sql, val)
             last_row_id = cursor.lastrowid
-        else:
-            last_row_id = None  # Atur last_row_id menjadi None jika tidak ada hasil
 
-        # Ambil ID dari asosiasi yang baru dimasukkan
-        for item in results:
-            for rule in item.ordered_statistics:
-                antecedent = ", ".join(rule.items_base)
-                consequent = ", ".join(rule.items_add)
-                # Simpan detail aturan asosiasi ke tabel detail_asosiasi
+            # Simpan detail aturan asosiasi ke tabel detail_asosiasi
+            for _, row in rules.iterrows():
+                antecedents = ', '.join(list(row['antecedents']))
+                consequents = ', '.join(list(row['consequents']))
+                support = round(row['support'], 3)
+                confidence = round(row['confidence'], 3)
+                lift = round(row['lift'], 3)
                 sql = """
                 INSERT INTO detail_asosiasi 
                 (asosiasi_id, antecedent, consequent, support, confidence, lift) 
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """
-                val = (
-                    last_row_id,
-                    antecedent,
-                    consequent,
-                    int(item.support * 100),  # Convert support to integer (e.g., 0.2 -> 20)
-                    int(rule.confidence * 100),  # Convert confidence to integer
-                    int(rule.lift * 100)  # Convert lift to integer
-                )
+                val = (last_row_id, antecedents, consequents, support, confidence, lift)
                 cursor.execute(sql, val)
 
         mydb.commit()
@@ -195,9 +200,10 @@ def apply_apriori(start_date, end_date):
 
         return formatted_results
 
+    except mysql.connector.Error as err:
+        return f"Terjadi kesalahan koneksi database: {err}"
     except Exception as e:
         return f"Terjadi kesalahan saat melakukan analisis Apriori: {e}"
-
 # Route untuk melakukan analisis Apriori dan menyimpan hasilnya ke database
 @app.route('/apriori', methods=['GET', 'POST'])
 def apriori_route():
