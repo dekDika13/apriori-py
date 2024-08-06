@@ -196,8 +196,27 @@ def apply_apriori(start_date, end_date):
                 cursor.execute(sql, val)
 
         mydb.commit()
-        mydb.close()
+ # Ambil kembali data detail asosiasi dari database untuk menyesuaikan tampilannya
+        query = """
+        SELECT detail_asosiasi.antecedent, detail_asosiasi.consequent, 
+               detail_asosiasi.support, detail_asosiasi.confidence, detail_asosiasi.lift
+        FROM detail_asosiasi
+        WHERE detail_asosiasi.asosiasi_id = %s
+        """
+        cursor.execute(query, (last_row_id,))
+        detail_results = cursor.fetchall()
 
+        # Format hasil untuk ditampilkan
+        formatted_results = []
+        for idx, row in enumerate(detail_results, start=1):
+            antecedents = row[0]
+            consequents = row[1]
+            formatted_results.append({
+                'No': idx,
+                'Nama Paket': f"Paket {antecedents} dan {consequents}"
+            })
+
+        mydb.close()
         return formatted_results
 
     except mysql.connector.Error as err:
