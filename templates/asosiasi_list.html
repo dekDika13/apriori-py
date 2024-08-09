@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daftar Asosiasi</title>
+</head>
+
+<body>
+    <h1>Daftar Asosiasi</h1>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Nama Hasil</th>
+                <th>Min Support</th>
+                <th>Min Confidence</th>
+                <th>Start Date</th>
+                <th>End Date</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for asosiasi in asosiasi_list %}
+            <tr>
+                <td>{{ asosiasi.asosiasi_id }}</td>
+                <td>{{ asosiasi.name }}</td>
+                <td>{{ asosiasi.min_support }}</td>
+                <td>{{ asosiasi.min_confidence }}</td>
+                <td>{{ asosiasi.start_date }}</td>
+                <td>{{ asosiasi.end_date }}</td>
+                <td><a href="{{ url_for('view_asosiasi', id_asosiasi=asosiasi.asosiasi_id) }}">View Details</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <button onclick="window.location.href='{{ url_for('apriori_route') }}'">Kembali ke Daftar Asosiasi</button>
+</body>
+
+</html>

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Analisis Apriori</title>
+</head>
+
+<body>
+    <h2>Analisis Apriori</h2>
+
+
+
+    <div id="results">
+        {% if results %}
+        <h3>Hasil Analisis:</h3>
+        <ul>
+            {% for result in results %}
+            <li>{{ result }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+
+    <button onclick="window.location.href='{{ url_for('asosiasi_list') }}'">Kembali ke Daftar Asosiasi</button>
+
+</body>
+
+</html>

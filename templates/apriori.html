@@ -12,6 +12,14 @@
         
         <label for="end_date">Tanggal Akhir:</label>
         <input type="date" id="end_date" name="end_date" required><br><br>
+        <label for="name">Nama Hasil:</label>
+        <input type="varchar" id="name" name="name" required><br><br>
+        <label for="name">minimal Support:</label>
+        <input type="float" id="min_support" name="min_support" required><br><br>
+        <label for="name">Minimal Confidence:</label>
+        <input type="float" id="min_confidence" name="min_confidence" required><br><br>
+
+
 
         <input type="submit" value="Lakukan Analisis">
     </form>
@@ -26,5 +34,7 @@
             </ul>
         {% endif %}
     </div>
+
+    <button onclick="window.location.href='{{ url_for('asosiasi_list') }}'">Kembali ke Daftar Asosiasi</button>
 </body>
 </html>

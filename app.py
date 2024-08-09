@@ -48,9 +48,9 @@ def create_tables():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS asosiasi (
         asosiasi_id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(50) NOT NULL,
-        min_support INT,
-        min_confidence INT,
+        name VARCHAR(255) NOT NULL,
+        min_support FLOAT,
+        min_confidence FLOAT,
         start_date DATETIME,  -- Menggunakan DATETIME untuk menyimpan tanggal dan waktu
         end_date DATETIME    -- Menggunakan DATETIME untuk menyimpan tanggal dan waktu
     )
@@ -59,11 +59,11 @@ def create_tables():
     CREATE TABLE IF NOT EXISTS detail_asosiasi (
         detail_asosiasi_id INT AUTO_INCREMENT PRIMARY KEY,
         asosiasi_id INT,
-        antecedent INT,
-        consequent INT,
-        support INT,
-        confidence INT,
-        lift INT,
+        antecedent VARCHAR(255),
+        consequent VARCHAR(255),
+        support FLOAT,
+        confidence FLOAT,
+        lift FLOAT,
         FOREIGN KEY (asosiasi_id) REFERENCES asosiasi(asosiasi_id)
     )
     """)
@@ -116,8 +116,9 @@ def import_data(file_stream):
     except Exception as e:
         return f"Terjadi kesalahan saat mengimpor data: {e}"
 
-
-def apply_apriori(start_date, end_date):
+def apply_apriori(start_date, end_date,min_support,min_confidence,name ):
+    mydb = None
+    cursor = None
     try:
         # Koneksi ke database
         mydb = mysql.connector.connect(
@@ -126,8 +127,8 @@ def apply_apriori(start_date, end_date):
             password=app.config['MYSQL_PASSWORD'],
             database=app.config['MYSQL_DB']
         )
-        
         cursor = mydb.cursor()
+        
         # Ambil data transaksi berdasarkan rentang tanggal
         query = """
         SELECT t.transaksi_id, t.tanggal, dt.nama_barang 
@@ -154,29 +155,19 @@ def apply_apriori(start_date, end_date):
         mybasket_sets = mybasket > 0
 
         # Mencari frequent itemsets
-        input_support = 0.005
+        input_support = min_support
         frequent_itemsets = mlxtend_apriori(mybasket_sets, min_support=input_support, use_colnames=True).sort_values(by='support', ascending=False)
 
         # Membuat aturan asosiasi berdasarkan frequent itemsets
-        input_confidence = 0.1
+        input_confidence = min_confidence
         rules = association_rules(frequent_itemsets, metric="confidence", min_threshold=input_confidence)
         rules = rules[["antecedents", "consequents", "antecedent support", "consequent support", "support", "confidence", "lift"]]
         rules.sort_values("confidence", ascending=False, inplace=True)
 
-        # Format hasil Apriori untuk ditampilkan
-        formatted_results = []
-        for _, row in rules.iterrows():
-            antecedents = ', '.join(list(row['antecedents']))
-            consequents = ', '.join(list(row['consequents']))
-            support = round(row['support'], 3)
-            confidence = round(row['confidence'], 3)
-            lift = round(row['lift'], 3)
-            formatted_results.append(f"{antecedents} -> {consequents} (Support: {support}, Confidence: {confidence}, Lift: {lift})")
-
         # Simpan hasil analisis ke tabel asosiasi
         if not rules.empty:
-            sql = "INSERT INTO asosiasi (min_support, min_confidence, start_date, end_date) VALUES (%s, %s, %s, %s)"
-            val = (input_support, input_confidence, start_date, end_date)
+            sql = "INSERT INTO asosiasi (min_support, min_confidence, start_date, end_date,name) VALUES (%s, %s, %s, %s,%s)"
+            val = (input_support, input_confidence, start_date, end_date,name)
             cursor.execute(sql, val)
             last_row_id = cursor.lastrowid
 
@@ -194,16 +185,40 @@ def apply_apriori(start_date, end_date):
                 """
                 val = (last_row_id, antecedents, consequents, support, confidence, lift)
                 cursor.execute(sql, val)
-
         mydb.commit()
- # Ambil kembali data detail asosiasi dari database untuk menyesuaikan tampilannya
+
+        # Ambil kembali data detail asosiasi dari database untuk menyesuaikan tampilannya
+        return result_apriori(last_row_id)
+
+    except mysql.connector.Error as err:
+        return f"Terjadi kesalahan koneksi database: {err}"
+    except Exception as e:
+        return f"Terjadi kesalahan saat melakukan analisis Apriori: {e}"
+    finally:
+        if cursor:
+            cursor.close()
+        if mydb:
+            mydb.close()
+
+def result_apriori(id_asosiasi):
+    mydb = None
+    cursor = None
+    try:
+        mydb = mysql.connector.connect(
+            host=app.config['MYSQL_HOST'],
+            user=app.config['MYSQL_USER'],
+            password=app.config['MYSQL_PASSWORD'],
+            database=app.config['MYSQL_DB']
+        )
+        cursor = mydb.cursor()
+
         query = """
-        SELECT detail_asosiasi.antecedent, detail_asosiasi.consequent, 
-               detail_asosiasi.support, detail_asosiasi.confidence, detail_asosiasi.lift
-        FROM detail_asosiasi
-        WHERE detail_asosiasi.asosiasi_id = %s
-        """
-        cursor.execute(query, (last_row_id,))
+            SELECT detail_asosiasi.antecedent, detail_asosiasi.consequent, 
+                detail_asosiasi.support, detail_asosiasi.confidence, detail_asosiasi.lift
+            FROM detail_asosiasi
+            WHERE detail_asosiasi.asosiasi_id = %s
+            """
+        cursor.execute(query, (id_asosiasi,))
         detail_results = cursor.fetchall()
 
         # Format hasil untuk ditampilkan
@@ -215,22 +230,60 @@ def apply_apriori(start_date, end_date):
                 'No': idx,
                 'Nama Paket': f"Paket {antecedents} dan {consequents}"
             })
-
-        mydb.close()
         return formatted_results
 
     except mysql.connector.Error as err:
         return f"Terjadi kesalahan koneksi database: {err}"
     except Exception as e:
-        return f"Terjadi kesalahan saat melakukan analisis Apriori: {e}"
-# Route untuk melakukan analisis Apriori dan menyimpan hasilnya ke database
+        return f"Terjadi kesalahan saat mengambil hasil Apriori: {e}"
+    finally:
+        if cursor:
+            cursor.close()
+        if mydb:
+            mydb.close()
+
+    try:
+        with mysql.connector.connect(
+            host=app.config['MYSQL_HOST'],
+            user=app.config['MYSQL_USER'],
+            password=app.config['MYSQL_PASSWORD'],
+            database=app.config['MYSQL_DB']
+        ) as mydb:
+            with mydb.cursor() as cursor:
+                query = """
+                    SELECT detail_asosiasi.antecedent, detail_asosiasi.consequent, 
+                        detail_asosiasi.support, detail_asosiasi.confidence, detail_asosiasi.lift
+                    FROM detail_asosiasi
+                    WHERE detail_asosiasi.asosiasi_id = %s
+                    """
+                cursor.execute(query, (id_asosiasi,))
+                detail_results = cursor.fetchall()
+
+                # Format hasil untuk ditampilkan
+                formatted_results = []
+                for idx, row in enumerate(detail_results, start=1):
+                    antecedents = row[0]
+                    consequents = row[1]
+                    formatted_results.append({
+                        'No': idx,
+                        'Nama Paket': f"Paket {antecedents} dan {consequents}"
+                    })
+        return formatted_results
+
+    except mysql.connector.Error as err:
+        return f"Terjadi kesalahan koneksi database: {err}"
+    except Exception as e:
+        return f"Terjadi kesalahan saat mengambil hasil Apriori: {e}"
 @app.route('/apriori', methods=['GET', 'POST'])
 def apriori_route():
     if request.method == 'POST':
         start_date = request.form['start_date']
         end_date = request.form['end_date']
-        results = apply_apriori(start_date, end_date)
-        return render_template('apriori.html', results=results)
+        name=request.form['name']
+        min_support = float(request.form['min_support'])
+        min_confidence = float(request.form['min_confidence'])
+        results = apply_apriori(start_date, end_date, min_support,min_confidence,name)
+        return render_template('result.html', results=results)
     else:
         return render_template('apriori.html')
 
@@ -253,6 +306,54 @@ def upload_file():
             return import_data(file_stream)
     else:
         return render_template('upload.html')
+
+
+@app.route('/asosiasi_list', methods=['GET'])
+def asosiasi_list():
+    try:
+        mydb = mysql.connector.connect(
+            host=app.config['MYSQL_HOST'],
+            user=app.config['MYSQL_USER'],
+            password=app.config['MYSQL_PASSWORD'],
+            database=app.config['MYSQL_DB']
+        )
+        cursor = mydb.cursor()
+
+        # Query to get all associations
+        query = "SELECT asosiasi_id, min_support, min_confidence, start_date, end_date, name FROM asosiasi"
+        cursor.execute(query)
+        asosiasi_list = cursor.fetchall()
+
+        # Format data to pass to the template
+        formatted_asosiasi_list = []
+        for row in asosiasi_list:
+            formatted_asosiasi_list.append({
+                'asosiasi_id': row[0],
+                'min_support': row[1],
+                'min_confidence': row[2],
+                'start_date': row[3],
+                'end_date': row[4],
+                'name': row[5],
+            })
+
+        return render_template('asosiasi_list.html', asosiasi_list=formatted_asosiasi_list)
+
+    except mysql.connector.Error as err:
+        return f"Terjadi kesalahan koneksi database: {err}"
+    except Exception as e:
+        return f"Terjadi kesalahan saat mengambil data asosiasi: {e}"
+    finally:
+        if cursor:
+            cursor.close()
+        if mydb:
+            mydb.close()
+
+
+@app.route('/asosiasi/<int:id_asosiasi>', methods=['GET'])
+def view_asosiasi(id_asosiasi):
+    results = result_apriori(id_asosiasi)
+    return render_template('result.html', results=results)
+
 
 if __name__ == '__main__':
     app.run(debug=True)
