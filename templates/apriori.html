@@ -2,6 +2,97 @@
 <html>
 <head>
     <title>Analisis Apriori</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+
+        h2 {
+            text-align: center;
+            color: #333;
+        }
+
+        form {
+            
+            background-color: #fff;
+            padding: 20px;
+            margin: 20px auto;
+            max-width: 600px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        label {
+            display: block;
+            margin: 10px 0 5px;
+        }
+
+        input[type="date"], 
+        input[type="text"], 
+        input[type="number"] {
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin: 5px 0 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        input[type="submit"] {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        input[type="submit"]:hover {
+            background-color: #45a049;
+        }
+
+        #results {
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        li {
+            background-color: #f9f9f9;
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        button {
+            display: block;
+            width: 200px;
+            margin: 20px auto;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
 </head>
 <body>
     <h2>Analisis Apriori</h2>
@@ -21,20 +112,11 @@
 
 
 
-        <input type="submit" value="Lakukan Analisis">
+        <input type="submit" value="Proses">
     </form>
 
-    <div id="results">
-        {% if results %}
-            <h3>Hasil Analisis:</h3>
-            <ul>
-                {% for result in results %}
-                    <li>{{ result }}</li>
-                {% endfor %}
-            </ul>
-        {% endif %}
-    </div>
 
-    <button onclick="window.location.href='{{ url_for('asosiasi_list') }}'">Kembali ke Daftar Asosiasi</button>
+
+    <button onclick="window.location.href='{{ url_for('index') }}'">Kembali ke Halaman Utama</button>
 </body>
 </html>

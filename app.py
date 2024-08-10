@@ -1,11 +1,11 @@
-from flask import Flask, request, render_template, jsonify
+from flask import Flask, request, render_template, jsonify,make_response
 import pandas as pd
 import mysql.connector
 from io import BytesIO
 import os
 from apyori import apriori
 from mlxtend.frequent_patterns import apriori as mlxtend_apriori, association_rules
-
+from fpdf import FPDF
 
 app = Flask(__name__)
 
@@ -13,11 +13,14 @@ app = Flask(__name__)
 app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
 app.config['MYSQL_PASSWORD'] = ''
-app.config['MYSQL_DB'] = 'rule'
+app.config['MYSQL_DB'] = 'retail'
 
 # Konfigurasi untuk pengunggahan file
 app.config['UPLOAD_FOLDER'] = 'uploads'  # Folder untuk menyimpan file yang diunggah
 
+
+def format_date(date):
+    return date.strftime('%Y-%m-%d') if date else ''
 def create_tables():
     mydb = mysql.connector.connect(
         host=app.config['MYSQL_HOST'],
@@ -217,7 +220,7 @@ def result_apriori(id_asosiasi):
                 detail_asosiasi.support, detail_asosiasi.confidence, detail_asosiasi.lift
             FROM detail_asosiasi
             WHERE detail_asosiasi.asosiasi_id = %s
-            """
+        """
         cursor.execute(query, (id_asosiasi,))
         detail_results = cursor.fetchall()
 
@@ -230,7 +233,8 @@ def result_apriori(id_asosiasi):
                 'No': idx,
                 'Nama Paket': f"Paket {antecedents} dan {consequents}"
             })
-        return formatted_results
+        
+        return formatted_results, id_asosiasi
 
     except mysql.connector.Error as err:
         return f"Terjadi kesalahan koneksi database: {err}"
@@ -242,38 +246,58 @@ def result_apriori(id_asosiasi):
         if mydb:
             mydb.close()
 
+
+def get_asosiasi_details(id_asosiasi):
+    cursor = None
+    mydb = None
     try:
-        with mysql.connector.connect(
+        mydb = mysql.connector.connect(
             host=app.config['MYSQL_HOST'],
             user=app.config['MYSQL_USER'],
             password=app.config['MYSQL_PASSWORD'],
             database=app.config['MYSQL_DB']
-        ) as mydb:
-            with mydb.cursor() as cursor:
-                query = """
-                    SELECT detail_asosiasi.antecedent, detail_asosiasi.consequent, 
-                        detail_asosiasi.support, detail_asosiasi.confidence, detail_asosiasi.lift
-                    FROM detail_asosiasi
-                    WHERE detail_asosiasi.asosiasi_id = %s
-                    """
-                cursor.execute(query, (id_asosiasi,))
-                detail_results = cursor.fetchall()
+        )
+        cursor = mydb.cursor()
 
-                # Format hasil untuk ditampilkan
-                formatted_results = []
-                for idx, row in enumerate(detail_results, start=1):
-                    antecedents = row[0]
-                    consequents = row[1]
-                    formatted_results.append({
-                        'No': idx,
-                        'Nama Paket': f"Paket {antecedents} dan {consequents}"
-                    })
-        return formatted_results
+        query = """
+            SELECT antecedent, consequent, support, confidence, lift
+            FROM detail_asosiasi
+            WHERE asosiasi_id = %s
+        """
+        cursor.execute(query, (id_asosiasi,))
+        details = cursor.fetchall()
+
+        # Format data to pass to the template
+        formatted_details = []
+        for row in details:
+            formatted_details.append({
+                'antecedent': row[0],
+                'consequent': row[1],
+                'support': row[2],
+                'confidence': row[3],
+                'lift': row[4],
+            })
+
+        return formatted_details
 
     except mysql.connector.Error as err:
-        return f"Terjadi kesalahan koneksi database: {err}"
+        return f"Terjadi kesalahan koneksi database: {err}", 500
     except Exception as e:
-        return f"Terjadi kesalahan saat mengambil hasil Apriori: {e}"
+        return f"Terjadi kesalahan saat mengambil data asosiasi: {e}", 500
+    finally:
+        if cursor:
+            cursor.close()
+        if mydb:
+            mydb.close()
+
+@app.route('/view_detail_asosiasi/<int:id_asosiasi>')
+def view_detail_asosiasi(id_asosiasi):
+    details = get_asosiasi_details(id_asosiasi)
+    if isinstance(details, str):  # If the return is an error message
+        return details
+    return render_template('view_asosiasi.html', details=details, id_asosiasi=id_asosiasi)
+
+
 @app.route('/apriori', methods=['GET', 'POST'])
 def apriori_route():
     if request.method == 'POST':
@@ -282,8 +306,8 @@ def apriori_route():
         name=request.form['name']
         min_support = float(request.form['min_support'])
         min_confidence = float(request.form['min_confidence'])
-        results = apply_apriori(start_date, end_date, min_support,min_confidence,name)
-        return render_template('result.html', results=results)
+        results,id_asosiasi = apply_apriori(start_date, end_date, min_support,min_confidence,name)
+        return render_template('result.html', results=results,id_asosiasi=id_asosiasi)
     else:
         return render_template('apriori.html')
 
@@ -292,7 +316,7 @@ def create_tables_route():
     return create_tables()
 
 @app.route('/', methods=['GET', 'POST'])
-def upload_file():
+def index():
     if request.method == 'POST':
         if 'file' not in request.files:
             return "Tidak ada file yang diunggah"
@@ -305,7 +329,7 @@ def upload_file():
             file_stream = BytesIO(file.read())
             return import_data(file_stream)
     else:
-        return render_template('upload.html')
+        return render_template('index.html')
 
 
 @app.route('/asosiasi_list', methods=['GET'])
@@ -331,8 +355,8 @@ def asosiasi_list():
                 'asosiasi_id': row[0],
                 'min_support': row[1],
                 'min_confidence': row[2],
-                'start_date': row[3],
-                'end_date': row[4],
+                'start_date': format_date(row[3]),
+                'end_date': format_date(row[4]),
                 'name': row[5],
             })
 
@@ -351,8 +375,52 @@ def asosiasi_list():
 
 @app.route('/asosiasi/<int:id_asosiasi>', methods=['GET'])
 def view_asosiasi(id_asosiasi):
-    results = result_apriori(id_asosiasi)
-    return render_template('result.html', results=results)
+    results,id_asosiasi = result_apriori(id_asosiasi)
+    return render_template('result.html', results=results,id_asosiasi=id_asosiasi)
+
+@app.route('/download_apriori_pdf/<int:id_asosiasi>', methods=['GET'])
+def download_apriori_pdf(id_asosiasi):
+    # Fetch the Apriori results using the function you already created
+    results_tuple = result_apriori(id_asosiasi)
+    
+    if not results_tuple:
+        return "No results found for the provided id_asosiasi", 404
+
+    # Extract the results from the tuple
+    results = results_tuple[0]
+
+    # Generate the PDF
+    pdf = FPDF()
+    pdf.add_page()
+
+    # Set title
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, txt=f"Hasil Paket Produk", ln=True, align='C')
+    
+    # Add some space
+    pdf.ln(10)
+
+    pdf.set_fill_color(169, 169, 169) # Light blue
+    # Set table headers
+    pdf.set_font("Arial", 'B', 12)
+
+    pdf.cell(10, 10, txt="No", border=1, align='C', fill=True)
+    pdf.cell(170, 10, txt="Nama Paket", border=1, align='C', fill=True)
+    pdf.ln()
+
+    # Add table rows
+    pdf.set_font("Arial", size=12)
+    for row in results:
+        pdf.cell(10, 10, txt=str(row['No']), border=1, align='C')
+        pdf.cell(170, 10, txt=row['Nama Paket'], border=1, align='C')
+        pdf.ln()
+
+    # Output the PDF as a response
+    response = make_response(pdf.output(dest='S').encode('latin1'))
+    response.headers['Content-Type'] = 'application/pdf'
+    response.headers['Content-Disposition'] = f'attachment; filename=Hasil_Paket_Produk.pdf'
+    
+    return response
 
 
 if __name__ == '__main__':

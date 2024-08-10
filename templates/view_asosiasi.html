@@ -4,13 +4,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Daftar Asosiasi</title>
+    <title>Detail Hasil Asosiasi</title>
     <style>
         body {
             font-family: sans-serif;
+            margin: 20px;
         }
 
-        h1 {
+        h2 {
             text-align: center;
         }
 
@@ -47,35 +48,38 @@
 </head>
 
 <body>
-    <h1>Riwayat Hasil</h1>
+    <h2>Detail Hasil Asosiasi</h2>
+
     <table>
         <thead>
             <tr>
-                <th>No</th>
-                <th>Nama Hasil</th>
-                <th>Min Support</th>
-                <th>Min Confidence</th>
-                <th>Start Date</th>
-                <th>End Date</th>
-                <th>Action</th>
+                <th>Antecedent</th>
+                <th>Consequent</th>
+                <th>Support</th>
+                <th>Confidence</th>
+                <th>Lift</th>
             </tr>
         </thead>
         <tbody>
-            {% for asosiasi in asosiasi_list %}
+            {% if details %}
+            {% for detail in details %}
             <tr>
-                <td>{{ loop.index }}</td>
-                <td>{{ asosiasi.name }}</td>
-                <td>{{ asosiasi.min_support }}</td>
-                <td>{{ asosiasi.min_confidence }}</td>
-                <td>{{ asosiasi.start_date }}</td>
-                <td>{{ asosiasi.end_date }}</td>
-                <td><a href="{{ url_for('view_asosiasi', id_asosiasi=asosiasi.asosiasi_id) }}">View Details</a></td>
+                <td>{{ detail.antecedent }}</td>
+                <td>{{ detail.consequent }}</td>
+                <td>{{ detail.support }}</td>
+                <td>{{ detail.confidence }}</td>
+                <td>{{ detail.lift }}</td>
             </tr>
             {% endfor %}
+            {% else %}
+            <tr>
+                <td colspan="5">No data available</td>
+            </tr>
+            {% endif %}
         </tbody>
     </table>
 
-    <button onclick="window.location.href='{{ url_for('index') }}'">Kembali ke Halaman Utama</button>
+    <button onclick="window.location.href='{{ url_for('asosiasi_list') }}'">Kembali ke Daftar Asosiasi</button>
 </body>
 
 </html>
