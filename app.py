@@ -6,7 +6,8 @@ import os
 from apyori import apriori
 from mlxtend.frequent_patterns import apriori as mlxtend_apriori, association_rules
 from fpdf import FPDF
-
+import webbrowser
+from threading import Timer
 app = Flask(__name__)
 
 # Konfigurasi database (sesuaikan dengan pengaturan Anda)
@@ -18,7 +19,8 @@ app.config['MYSQL_DB'] = 'retail'
 # Konfigurasi untuk pengunggahan file
 app.config['UPLOAD_FOLDER'] = 'uploads'  # Folder untuk menyimpan file yang diunggah
 
-
+def open_browser():
+    webbrowser.open_new('http://127.0.0.1:5000/')
 def format_date(date):
     return date.strftime('%Y-%m-%d') if date else ''
 def create_tables():
@@ -424,4 +426,5 @@ def download_apriori_pdf(id_asosiasi):
 
 
 if __name__ == '__main__':
+    Timer(1, open_browser).start()  # Buka browser setelah server berjalan
     app.run(debug=True)
