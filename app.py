@@ -8,21 +8,24 @@ from mlxtend.frequent_patterns import apriori as mlxtend_apriori, association_ru
 from fpdf import FPDF
 import webbrowser
 from threading import Timer
-app = Flask(__name__)
 
+
+app = Flask(__name__)
 # Konfigurasi database (sesuaikan dengan pengaturan Anda)
 app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
 app.config['MYSQL_PASSWORD'] = ''
 app.config['MYSQL_DB'] = 'retail'
 
-# Konfigurasi untuk pengunggahan file
-app.config['UPLOAD_FOLDER'] = 'uploads'  # Folder untuk menyimpan file yang diunggah
-
+# halaman utama
 def open_browser():
     webbrowser.open_new('http://127.0.0.1:5000/')
+
+# format tanggal
 def format_date(date):
     return date.strftime('%Y-%m-%d') if date else ''
+
+# migrasi database
 def create_tables():
     mydb = mysql.connector.connect(
         host=app.config['MYSQL_HOST'],
@@ -75,7 +78,9 @@ def create_tables():
     mydb.commit()
     mydb.close()
 
-    return "Tabel berhasil dibuat!"  # Atau kembalikan status lain yang sesuai
+    text="Tabel berhasil dibuat!"  # Atau kembalikan status lain yang sesuai
+    return render_template('index.html')
+
 # Fungsi untuk import data
 def import_data(file_stream):
     try:
@@ -169,15 +174,36 @@ def apply_apriori(start_date, end_date,min_support,min_confidence,name ):
         rules = rules[["antecedents", "consequents", "antecedent support", "consequent support", "support", "confidence", "lift"]]
         rules.sort_values("confidence", ascending=False, inplace=True)
 
+
+        # Menyimpan hasil akhir dengan aturan yang tidak saling berkaitan
+        unique_rules = []
+        rules_seen = set()
+
+        for _, row in rules.iterrows():
+            antecedents = frozenset(row['antecedents'])
+            consequents = frozenset(row['consequents'])
+
+            # Membuat pasangan sorted untuk membandingkan aturan yang saling berkaitan
+            rule_pair = (antecedents, consequents)
+            reverse_pair = (consequents, antecedents)
+
+            if rule_pair not in rules_seen and reverse_pair not in rules_seen:
+                unique_rules.append(row)
+                rules_seen.add(rule_pair)
+
+        # Membuat DataFrame dari aturan yang unik
+        Hasil_Aturan_Asosiasi = pd.DataFrame(unique_rules)
+    
+
         # Simpan hasil analisis ke tabel asosiasi
-        if not rules.empty:
+        if not Hasil_Aturan_Asosiasi.empty:
             sql = "INSERT INTO asosiasi (min_support, min_confidence, start_date, end_date,name) VALUES (%s, %s, %s, %s,%s)"
             val = (input_support, input_confidence, start_date, end_date,name)
             cursor.execute(sql, val)
             last_row_id = cursor.lastrowid
 
             # Simpan detail aturan asosiasi ke tabel detail_asosiasi
-            for _, row in rules.iterrows():
+            for _, row in Hasil_Aturan_Asosiasi.iterrows():
                 antecedents = ', '.join(list(row['antecedents']))
                 consequents = ', '.join(list(row['consequents']))
                 support = round(row['support'], 3)
